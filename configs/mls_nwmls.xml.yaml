@@ -1,0 +1,29 @@
+
+# Example: XML endpoint (XPath mapping). Supports namespaces if exposed by the feed.
+sources:
+  - name: NWMLS Agents
+    mls_id: 69
+    input_format: xml
+    auth:
+      type: basic
+      username: "{{ env_user | default('REPLACE_USER') }}"
+      password: "{{ env_pass | default('REPLACE_PASS') }}"
+    request:
+      method: GET
+      url: "https://api.example.com/nwmls/agents"
+      headers:
+        Accept: application/xml
+      params:
+        updated_since: "{{ since }}"
+      timeout_seconds: 40
+    mapping:
+      root: "//agents/agent"
+      fields:
+        - { name: agent_id, expr: "id/text()" }
+        - { name: first_name, expr: "firstName/text()" }
+        - { name: last_name, expr: "lastName/text()" }
+        - { name: office_id, expr: "office/id/text()" }
+    sink:
+      type: csv
+      path: "out/nwmls_agents.csv"
+      mode: overwrite

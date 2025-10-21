@@ -1,0 +1,38 @@
+
+# Example: JSON endpoint with page-based pagination
+sources:
+  - name: CRMLS Listings
+    mls_id: 14
+    input_format: json
+    auth:
+      type: bearer
+      token: "{{ env_token | default('REPLACE_ME') }}"
+    request:
+      method: GET
+      url: "https://api.example.com/crmls/listings"
+      headers:
+        Accept: application/json
+      params:
+        mls: "{{ mls_id }}"
+        updated_since: "{{ since }}"
+        page: "{{ page | default(1) }}"
+        page_size: "100"
+      timeout_seconds: 40
+    mapping:
+      root: "data.items"
+      fields:
+        - { name: listing_id, expr: "id" }
+        - { name: agent_id,   expr: "agent.id" }
+        - { name: price,      expr: "price" }
+        - { name: city,       expr: "address.city" }
+        - { name: state,      expr: "address.state" }
+        - { name: zip,        expr: "address.zip" }
+    paginate:
+      type: page
+      param: page
+      start: 1
+      max_pages: 50
+    sink:
+      type: ndjson
+      path: "out/crmls.ndjson"
+      mode: overwrite
