@@ -1,0 +1,10 @@
+
+# Pinned dependency versions (validated for this project)
+PyYAML==6.0
+httpx==0.24.1
+tenacity==8.2.3
+Jinja2==3.1.2
+pydantic==2.5.1
+jmespath==1.0.1
+lxml==4.9.3
+pandas==2.3.3
