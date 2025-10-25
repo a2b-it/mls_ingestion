@@ -46,9 +46,25 @@ def _fetch_once(src: SourceConfig, context: Dict[str, Any]) -> List[Dict[str,Any
         return map_xml(content, src.mapping)
 
 def _get_source(app: AppConfig, mls: int) -> SourceConfig:
+    # 1) exact match
     for s in app.sources:
         if s.mls_id == mls:
             return s
+
+    # 2) fallback to a default source with mls_id == 0
+    for s in app.sources:
+        if getattr(s, "mls_id", None) == 0:
+            return s
+
+    # 3) fallback to a source explicitly named 'default' (case-insensitive)
+    for s in app.sources:
+        if getattr(s, "name", "").lower() == "default":
+            return s
+
+    # 4) final fallback: return the first source (best-effort)
+    if app.sources:
+        return app.sources[0]
+
     raise SystemExit(f"No source found for MLS {mls}")
 
 if __name__ == "__main__":
@@ -56,9 +72,12 @@ if __name__ == "__main__":
     p.add_argument("--config", required=True, help="Path to YAML config")
     p.add_argument("--mls", required=True, type=int, help="MLS id (per config)")
     p.add_argument("--since", required=False, help="ISO date for incremental fetch")
+    p.add_argument("--log-file", required=False, help="Path to append request/response logs (JSONL)")
     args = p.parse_args()
     ctx = {}
     if args.since:
         ctx["since"] = args.since
+    if args.log_file:
+        ctx["log_file"] = args.log_file
     total = run(args.config, args.mls, ctx)
     print(f"Fetched {total} records.")

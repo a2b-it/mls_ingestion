@@ -1,0 +1,98 @@
+
+# Example: XML endpoint (XPath mapping). Supports namespaces if exposed by the feed.
+sources:
+  - name: default # this config will be returned if no --mls argument is provided
+    mls_id: 0
+    input_format: xml
+    auth:
+      type: none
+      username: "{{ env_user | default('REPLACE_USER') }}"
+      password: "{{ env_pass | default('REPLACE_PASS') }}"
+    request:
+      method: GET
+      url: "https://vbuttons.net/stagingapi/agent.php"
+      headers:
+        Accept: application/xml
+      params:
+        # Parsed from: ?authToken=AMERFST7543567OP&mlsSid=238&status=A&searchStr=C*&fromDate=0-01-2020
+        # NOTE: authToken is sensitive — prefer using an env var (see example below).
+        authToken: "{{ env_auth_token | default('AMERFST7543567OP') }}"  # or replace with literal: "AMERFST7543567OP"
+        mlsSid: "238"
+        status: "A"
+        searchStr: "C*"
+        fromDate: "{{ since }}"
+      timeout_seconds: 40
+    mapping:
+      root: "//results/Agent"
+      fields:
+        - { name: mlsSid, expr: "mlsSid/text()" }
+        - { name: agentId, expr: "agentId/text()" }
+        - { name: firstName, expr: "firstName/text()" }
+        - { name: lastName, expr: "lastName/text()" }
+        - { name: agentStatus, expr: "agentStatus/text()" }
+        - { name: agentPhone1, expr: "agentPhone1/text()" }
+        - { name: agentPhoneType1, expr: "agentPhoneType1/text()" }
+        - { name: agentPhone2, expr: "agentPhone2/text()" }
+        - { name: agentPhoneType2, expr: "agentPhoneType2/text()" }
+        - { name: agentPhone3, expr: "agentPhone3/text()" }
+        - { name: agentPhoneType3, expr: "agentPhoneType3/text()" }
+        - { name: agentFax, expr: "agentFax/text()" }
+        - { name: agentEmail, expr: "agentEmail/text()" }
+        - { name: officeId, expr: "office/id/text()" }
+        - { name: officeName, expr: "office/name/text()" }
+        - { name: officeAddress, expr: "office/address/text()" }
+        - { name: officeCity, expr: "office/city/text()" }
+        - { name: officeState, expr: "office/state/text()" }
+        - { name: officeZip, expr: "office/zip/text()" }
+    sink:
+      type: csv
+      path: "out/vbuttons_mls_238_agent.csv"
+      mode: overwrite
+
+  - name: NWMLS Agents 239
+    mls_id: 239
+    input_format: xml
+    auth:
+      type: none
+      username: "{{ env_user | default('REPLACE_USER') }}"
+      password: "{{ env_pass | default('REPLACE_PASS') }}"
+    request:
+      method: GET
+      url: "https://vbuttons.net/stagingapi/agent.php"
+      headers:
+        Accept: application/xml
+      params:
+        # Copied from 238 config; adjust mlsSid to 239
+        authToken: "{{ env_auth_token | default('AMERFST7543567OP') }}"
+        mlsSid: "0"
+        status: "A"
+        searchStr: "All"
+        fromDate: "{{ since }}"
+        updated_since: "{{ since }}"
+      timeout_seconds: 40
+    mapping:
+      root: "//results/Agent"
+      fields:
+        - { name: mlsSid, expr: "mlsSid/text()" }
+        - { name: agentId, expr: "agentId/text()" }
+        - { name: firstName, expr: "firstName/text()" }
+        - { name: lastName, expr: "lastName/text()" }
+        - { name: agentStatus, expr: "agentStatus/text()" }
+        - { name: agentPhone1, expr: "agentPhone1/text()" }
+        - { name: agentPhoneType1, expr: "agentPhoneType1/text()" }
+        - { name: agentPhone2, expr: "agentPhone2/text()" }
+        - { name: agentPhoneType2, expr: "agentPhoneType2/text()" }
+        - { name: agentPhone3, expr: "agentPhone3/text()" }
+        - { name: agentPhoneType3, expr: "agentPhoneType3/text()" }
+        - { name: agentFax, expr: "agentFax/text()" }
+        - { name: agentEmail, expr: "agentEmail/text()" }
+        - { name: officeId, expr: "office/id/text()" }
+        - { name: officeName, expr: "office/name/text()" }
+        - { name: officeAddress, expr: "office/address/text()" }
+        - { name: officeCity, expr: "office/city/text()" }
+        - { name: officeState, expr: "office/state/text()" }
+        - { name: officeZip, expr: "office/zip/text()" }
+    sink:
+      type: csv
+      path: "out/vbuttons_mls_239_agent.csv"
+      mode: overwrite
