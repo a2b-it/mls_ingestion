@@ -35,6 +35,6 @@ jobs:
       with:
           inlineScript: |
             az containerapp update \
-              --name myapp \
-              --resource-group my-rg \
+              --name crems_mls_ingester \
+              --resource-group devops-tools-rg \
               --image ${{ secrets.ACR_LOGIN_SERVER }}/crems_mls_ingester:${{ github.sha }}
