@@ -20,3 +20,21 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: Build and push image to ACR
+      uses: azure/docker-login@v2
+      with:
+          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+    - run: |
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/crems_mls_ingester:${{ github.sha }} .
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/crems_mls_ingester:${{ github.sha }}
+
+    - name: Deploy to Azure Container Apps
+      uses: azure/cli@v2
+      with:
+          inlineScript: |
+            az containerapp update \
+              --name myapp \
+              --resource-group my-rg \
+              --image ${{ secrets.ACR_LOGIN_SERVER }}/crems_mls_ingester:${{ github.sha }}
