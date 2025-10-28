@@ -1,24 +1,45 @@
-name: Run Azure CLI Login with OpenID Connect
-on: [push]
-     
-jobs: 
-  test:
-    permissions:
-      id-token: write # Require write permission to Fetch an OIDC token.
+name: Build & Push to ACR
 
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write    # required for OIDC
+  contents: read
+
+jobs:
+  build-and-push:
     runs-on: ubuntu-latest
+
+    env:
+      IMAGE_NAME: mls_ingestion
+
     steps:
-    - name: Azure CLI Login
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  
-    - name: Azure CLI script
-      uses: azure/cli@v2
-      with:
-        azcliversion: latest
-        inlineScript: |
-          az account show
-          # You can write your Azure CLI inline scripts here.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login (via Azure token)
+        run: az acr login -n cremslab
+
+      - name: Build & push
+        run: |
+          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # Optional: also push the "latest" tag
+      - name: Tag latest
+        if: github.ref == 'refs/heads/main'
+        run: |
+          IMAGE_SHA="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          IMAGE_LATEST="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest"
+          docker tag "$IMAGE_SHA" "$IMAGE_LATEST"
+          docker push "$IMAGE_LATEST"
