@@ -16,30 +16,23 @@ jobs:
       IMAGE_NAME: mls_ingestion
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: ACR login (via Azure token)
-        run: az acr login -n cremslab
-
-      - name: Build & push
+      - name: Sanity check Azure IDs (redacted)
         run: |
-          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
-
-      # Optional: also push the "latest" tag
-      - name: Tag latest
-        if: github.ref == 'refs/heads/main'
+          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            val="${{ secrets[format('{0}', env.DUMMY)] }}" # placeholder to avoid template collision
+          done
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Print lengths (safe)
+        shell: bash
         run: |
-          IMAGE_SHA="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          IMAGE_LATEST="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest"
-          docker tag "$IMAGE_SHA" "$IMAGE_LATEST"
-          docker push "$IMAGE_LATEST"
+          show_len () { test -n "$2"; echo "$1 length: ${#2}"; }
+          show_len "AZURE_CLIENT_ID" "${AZURE_CLIENT_ID}"
+          show_len "AZURE_TENANT_ID" "${AZURE_TENANT_ID}"
+          show_len "AZURE_SUBSCRIPTION_ID" "${AZURE_SUBSCRIPTION_ID}"
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
