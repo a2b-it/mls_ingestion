@@ -58,7 +58,7 @@ sources:
       password: "{{ env_pass | default('REPLACE_PASS') }}"
     request:
       method: GET
-      url: "https://vbuttons.net/stagingapi/agent.php"
+      url: "https://c6e486c9-4aa8-4366-8c38-98bd27e3f6fa.mock.pstmn.io/stagingapi/agent.php?"
       headers:
         Accept: application/xml
       params:
