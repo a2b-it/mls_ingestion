@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    environment: Azure_crems          # 👈 name of your Environment (change if yours is “prod”, “staging”, etc.)
+    environment: uat          # 👈 name of your Environment (change if yours is “prod”, “staging”, etc.)
 
     env:
       IMAGE_NAME: mls_ingestion
