@@ -17,20 +17,16 @@ jobs:
       IMAGE_NAME: mls_ingestion
 
     steps:
-      - name: Sanity check Azure IDs (redacted)
+      - name: Print secret lengths (safe)
+        shell: bash
         run: |
-          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
-            echo "Checking $v"
+          set +euo pipefail
+          for k in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            v="${!k}"
+            printf '%s length: %d\n' "$k" "${#v}"
           done
+          printf 'GITHUB_REF=%s  EVENT=%s  ENV=%s\n' "$GITHUB_REF" "$GITHUB_EVENT_NAME" "$GITHUB_ENVIRONMENT"
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Print lengths (safe)
-        shell: bash
-        run: |
-          show_len () { echo "$1 length: ${#2}"; }
-          show_len "AZURE_CLIENT_ID" "${AZURE_CLIENT_ID}"
-          show_len "AZURE_TENANT_ID" "${AZURE_TENANT_ID}"
-          show_len "AZURE_SUBSCRIPTI
