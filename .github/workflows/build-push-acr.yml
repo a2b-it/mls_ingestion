@@ -41,6 +41,11 @@ jobs:
       - name: ACR login
         run: az acr login -n cremslab
 
+      - name: Check workspace
+        run: |
+          pwd
+          ls -la
+          
       - name: Build & push
         run: |
           IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/mls_ingestion:${{ github.sha }}"
