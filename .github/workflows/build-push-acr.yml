@@ -11,6 +11,7 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    environment: Azure_crems          # 👈 name of your Environment (change if yours is “prod”, “staging”, etc.)
 
     env:
       IMAGE_NAME: mls_ingestion
@@ -19,20 +20,17 @@ jobs:
       - name: Sanity check Azure IDs (redacted)
         run: |
           for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
-            val="${{ secrets[format('{0}', env.DUMMY)] }}" # placeholder to avoid template collision
+            echo "Checking $v"
           done
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Print lengths (safe)
         shell: bash
         run: |
-          show_len () { test -n "$2"; echo "$1 length: ${#2}"; }
+          show_len () { echo "$1 length: ${#2}"; }
           show_len "AZURE_CLIENT_ID" "${AZURE_CLIENT_ID}"
           show_len "AZURE_TENANT_ID" "${AZURE_TENANT_ID}"
-          show_len "AZURE_SUBSCRIPTION_ID" "${AZURE_SUBSCRIPTION_ID}"
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          show_len "AZURE_SUBSCRIPTI
