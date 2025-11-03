@@ -5,6 +5,16 @@ from pydantic import BaseModel, Field, HttpUrl, validator
 
 InputFormat = Literal["json", "xml"]
 
+ResponseSource = Literal["status", "header", "json", "xml"]
+
+class ResponseField(BaseModel):
+    name: str
+    source: ResponseSource = "json"
+    expr: Optional[str] = None
+
+class ResponseSpec(BaseModel):
+    fields: List[ResponseField]
+
 class AuthConfig(BaseModel):
     type: Literal["none", "basic", "bearer", "api_key"] = "none"
     username: Optional[str] = None
@@ -44,6 +54,7 @@ class SourceConfig(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     request: RequestSpec
     mapping: MappingSpec
+    response: Optional[ResponseSpec] = None
     sink: SinkSpec
     paginate: Optional[Dict[str, Any]] = None  # e.g., {"type":"page","param":"page","start":1,"limit":100, "max_pages":10}
 

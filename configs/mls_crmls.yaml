@@ -36,3 +36,13 @@ sources:
       type: ndjson
       path: "out/crmls.ndjson"
       mode: overwrite
+    response:
+      fields:
+        - name: http_status
+          source: status
+        - name: server_header
+          source: header
+          expr: Server
+        - name: total_results
+          source: xml
+          expr: "count(//results/agent)"

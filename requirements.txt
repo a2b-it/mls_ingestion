@@ -8,3 +8,5 @@ pydantic==2.5.1
 jmespath==1.0.1
 lxml==4.9.3
 pandas==2.3.3
+azure-servicebus==7.14.3
+azure-identity==1.25.1
