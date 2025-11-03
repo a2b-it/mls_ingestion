@@ -39,6 +39,14 @@ jobs:
 
       - name: Build & push
         run: |
-          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/mls_ingestion:${{ github.sha }}"
-          docker build -t "$IMAGE":latest .
-          docker push "$IMAGE":latest
+          set -euo pipefail
+          BASE="${{ secrets.ACR_LOGIN_SERVER }}/mls_ingestion"
+          TAG_SHA="${BASE}:${{ github.sha }}"
+          TAG_LATEST="${BASE}:latest"
+
+          # Build once, tag twice
+          docker build -t "$TAG_SHA" .
+          docker tag "$TAG_SHA" "$TAG_LATEST"
+
+          docker push "$TAG_SHA"
+          docker push "$TAG_LATEST"
