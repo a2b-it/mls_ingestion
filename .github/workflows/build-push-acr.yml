@@ -14,7 +14,7 @@ jobs:
     environment: Azure_crems          # 👈 name of your Environment (change if yours is “prod”, “staging”, etc.)
 
     env:
-      IMAGE_NAME: mls_ingestion
+      IMAGE_NAME: mls_ingest_app
 
     steps:
       - name: Azure login (OIDC)
