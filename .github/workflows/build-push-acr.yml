@@ -40,7 +40,7 @@ jobs:
       - name: Build & push
         run: |
           set -euo pipefail
-          BASE="${{ secrets.ACR_LOGIN_SERVER }}/mls_ingestion"
+          BASE="${{ secrets.ACR_LOGIN_SERVER }}/$IMAGE_NAME"
           TAG_SHA="${BASE}:${{ github.sha }}"
           TAG_LATEST="${BASE}:latest"
 
