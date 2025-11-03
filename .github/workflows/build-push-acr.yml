@@ -40,5 +40,5 @@ jobs:
       - name: Build & push
         run: |
           IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/mls_ingestion:${{ github.sha }}"
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE:latest"
+          docker build -t "$IMAGE":latest .
+          docker push "$IMAGE":latest
