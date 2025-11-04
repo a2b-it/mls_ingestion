@@ -4,6 +4,8 @@ import json
 import logging
 import uuid
 from typing import Any, Dict, Optional
+import time
+from datetime import datetime, timezone
 
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 
@@ -28,12 +30,31 @@ class ServiceBusOrchestrator:
     via constructor or environment variable SERVICEBUS_CONNECTION_STRING.
     """
 
-    def __init__(self, connection_string: Optional[str] = None):
-        self.connection_string = connection_string or os.environ.get(
-            "SERVICEBUS_CONNECTION_STRING"
-        )
+    def __init__(
+        self,
+        connection_string: Optional[str] = None,
+        input_queue: Optional[str] = None,
+        output_queue: Optional[str] = None,
+        listen_duration_seconds: Optional[int] = None,
+    ):
+        # connection string: arg overrides env
+        self.connection_string = connection_string or os.environ.get("SERVICEBUS_CONNECTION_STRING")
         if not self.connection_string:
             raise ValueError("Service Bus connection string must be provided")
+
+        # queues: arg overrides env
+        self.input_queue = input_queue or os.environ.get("INPUT_QUEUE")
+        self.output_queue = output_queue or os.environ.get("OUTPUT_QUEUE")
+        # How long the listener should run (seconds). If None, run until interrupted.
+        # Constructor arg overrides env.
+        env_dur = os.environ.get("LISTEN_DURATION_SECONDS")
+        if listen_duration_seconds is None and env_dur:
+            try:
+                listen_duration_seconds = int(env_dur)
+            except Exception:
+                listen_duration_seconds = None
+
+        self.listen_duration_seconds = listen_duration_seconds
 
     def _parse_message_body(self, msg) -> Dict[str, Any]:
         # msg.body may be an iterable of bytes/str parts
@@ -77,8 +98,8 @@ class ServiceBusOrchestrator:
 
         LOG.info("Runner completed, fetched %d records", total)
 
-        # If the caller requested an output queue, send a JSON summary message
-        out_queue = payload.get("output_queue")
+        # Determine output queue (message override, else orchestrator-configured)
+        out_queue = payload.get("output_queue") or self.output_queue
         out_conn = payload.get("output_connection_string") or self.connection_string
         if out_queue:
             summary = {
@@ -91,33 +112,89 @@ class ServiceBusOrchestrator:
                 "response_fields": metadata.get("response_fields"),
             }
             try:
-                # use provided connection string if present, otherwise use existing client
-                if out_conn == self.connection_string:
-                    # reuse the ServiceBusClient context
-                    with ServiceBusClient.from_connection_string(self.connection_string) as client:
-                        with client.get_queue_sender(queue_name=out_queue) as sender:
-                            sender.send_messages(ServiceBusMessage(json.dumps(summary)))
+                # ensure we have a connection string to use
+                if not out_conn:
+                    LOG.warning("No connection string available to send summary to %s", out_queue)
                 else:
-                    # explicit different connection string
-                    with ServiceBusClient.from_connection_string(out_conn) as client:
+                    # use provided connection string if present, otherwise use existing client
+                    if out_conn == self.connection_string:
+                        # reuse the ServiceBusClient context
+                        conn_str = str(self.connection_string)
+                    else:
+                        conn_str = str(out_conn)
+
+                    with ServiceBusClient.from_connection_string(conn_str) as client:
                         with client.get_queue_sender(queue_name=out_queue) as sender:
                             sender.send_messages(ServiceBusMessage(json.dumps(summary)))
-                LOG.info("Sent summary message to output queue %s", out_queue)
+                    LOG.info("Sent summary message to output queue %s", out_queue)
             except Exception:
                 LOG.exception("Failed to send summary message to output queue %s", out_queue)
 
-    def listen_queue(self, queue_name: str, max_wait_time: int = 5):
+    def _send_warning_summary(self, reason: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """Send a warning message to the configured output queue.
+
+        This is used when the orchestrator stops due to its configured listen duration.
+        """
+        out_queue = self.output_queue
+        out_conn = self.connection_string
+        if not out_queue:
+            LOG.warning("No output queue configured; cannot send warning summary: %s", reason)
+            return
+
+        warning = {
+            "type": "warning",
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "details": details or {},
+        }
+        try:
+            conn_str = str(out_conn)
+            with ServiceBusClient.from_connection_string(conn_str) as client:
+                with client.get_queue_sender(queue_name=out_queue) as sender:
+                    sender.send_messages(ServiceBusMessage(json.dumps(warning)))
+            LOG.info("Sent warning summary to output queue %s", out_queue)
+        except Exception:
+            LOG.exception("Failed to send warning summary to output queue %s", out_queue)
+
+    def listen_queue(self, queue_name: Optional[str] = None, max_wait_time: int = 5, listen_duration_seconds: Optional[int] = None):
         """Continuously listen to the given queue and process incoming messages.
 
-        This method blocks until interrupted.
+        If listen_duration_seconds is provided (or configured on the instance), the listener
+        will stop after that many seconds. When stopped due to timeout a warning message
+        will be sent to the output queue.
+        This method blocks until interrupted or duration elapses.
         """
+        # choose queue: explicit arg overrides configured input_queue
+        queue_name = queue_name or self.input_queue
+        if not queue_name:
+            raise ValueError("Input queue must be provided via constructor, env INPUT_QUEUE, or --input-queue")
+
         LOG.info("Connecting to Service Bus and listening on queue '%s'", queue_name)
-        with ServiceBusClient.from_connection_string(self.connection_string) as client:
-            receiver = client.get_queue_receiver(queue_name=queue_name, max_wait_time=max_wait_time)
+        # determine effective listen duration (arg overrides instance config)
+        effective_duration = listen_duration_seconds if listen_duration_seconds is not None else self.listen_duration_seconds
+        end_time = (time.time() + effective_duration) if effective_duration and effective_duration > 0 else None
+
+        conn_str = str(self.connection_string)
+        # To ensure we process exactly one message at a time and avoid prefetching
+        # multiple messages into the client, set prefetch_count=0 and request
+        # a single message per receive call (max_message_count=1). We also
+        # support graceful shutdown: KeyboardInterrupt sets a stop flag so the
+        # currently-processing message can finish before the listener exits.
+        with ServiceBusClient.from_connection_string(conn_str) as client:
+            receiver = client.get_queue_receiver(queue_name=queue_name, max_wait_time=max_wait_time, prefetch_count=0)
             with receiver:
                 while True:
+                    # check timeout
+                    if end_time is not None and time.time() >= end_time:
+                        LOG.info("Listen duration of %s seconds elapsed, stopping listener", effective_duration)
+                        # send a warning to the output queue with basic orchestrator info
+                        details = {"input_queue": queue_name, "listen_duration_seconds": effective_duration}
+                        self._send_warning_summary("listen_timeout", details=details)
+                        break
+
                     try:
-                        messages = receiver.receive_messages(max_message_count=5, max_wait_time=max_wait_time)
+                        # receive a single message and block for up to max_wait_time
+                        messages = receiver.receive_messages(max_message_count=1, max_wait_time=max_wait_time)
                         for msg in messages:
                             try:
                                 payload = self._parse_message_body(msg)
@@ -140,13 +217,19 @@ def main_from_env():
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--queue", required=True, help="Service Bus queue name to listen to")
-    parser.add_argument("--connection-string", required=False, help="Service Bus connection string (overrides env)")
+    parser.add_argument("--input-queue", required=False, help="Service Bus input queue name to listen to (overrides env INPUT_QUEUE)")
+    parser.add_argument("--output-queue", required=False, help="Service Bus output queue name to send summaries to (overrides env OUTPUT_QUEUE)")
+    parser.add_argument("--connection-string", required=False, help="Service Bus connection string (overrides env SERVICEBUS_CONNECTION_STRING)")
+    parser.add_argument("--listen-duration", required=False, type=int, help="How many seconds to listen before stopping and sending a warning summary (overrides env LISTEN_DURATION_SECONDS)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    orchestrator = ServiceBusOrchestrator(connection_string=args.connection_string)
-    orchestrator.listen_queue(args.queue)
+    orchestrator = ServiceBusOrchestrator(
+        connection_string=args.connection_string,
+        input_queue=args.input_queue,
+        output_queue=args.output_queue,
+    )
+    orchestrator.listen_queue(listen_duration_seconds=args.listen_duration)
 
 
 if __name__ == "__main__":
