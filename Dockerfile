@@ -27,4 +27,3 @@ USER appuser
 # Default entrypoint runs the runner as a module; override args to run specific source
 ENTRYPOINT ["python", "-m", "engine.orchestrator"]
 #ENTRYPOINT ["bash"]
-CMD ["--help"]
