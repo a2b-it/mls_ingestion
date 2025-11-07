@@ -8,6 +8,11 @@ import time
 from datetime import datetime, timezone
 
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
+try:
+    # azure.identity is optional in some test environments; import when available
+    from azure.identity import DefaultAzureCredential
+except Exception:  # pragma: no cover - optional dependency
+    DefaultAzureCredential = None
 
 from .runner import run
 
@@ -36,11 +41,14 @@ class ServiceBusOrchestrator:
         input_queue: Optional[str] = None,
         output_queue: Optional[str] = None,
         listen_duration_seconds: Optional[int] = None,
+        sb_fqdn: Optional[str] = None,
     ):
         # connection string: arg overrides env
         self.connection_string = connection_string or os.environ.get("SERVICEBUS_CONNECTION_STRING")
-        if not self.connection_string:
-            raise ValueError("Service Bus connection string must be provided")
+        # Optionally use Managed Identity (DefaultAzureCredential) when a
+        # fully-qualified Service Bus namespace (SB_FQDN) is provided.
+        # Constructor arg overrides env.
+        self.sb_fqdn = sb_fqdn or os.environ.get("SB_FQDN")
 
         # queues: arg overrides env
         self.input_queue = input_queue or os.environ.get("INPUT_QUEUE")
@@ -55,6 +63,18 @@ class ServiceBusOrchestrator:
                 listen_duration_seconds = None
 
         self.listen_duration_seconds = listen_duration_seconds
+
+        if self.sb_fqdn:
+            if DefaultAzureCredential is None:
+                raise RuntimeError("azure.identity is required for managed identity (SB_FQDN) but is not available")
+            # create credential instance once and reuse
+            self.credential = DefaultAzureCredential()
+        else:
+            self.credential = None
+
+        # ensure we have at least one auth method: either a connection string or SB_FQDN
+        if not self.connection_string and not self.sb_fqdn:
+            raise ValueError("Either SERVICEBUS_CONNECTION_STRING or SB_FQDN (managed identity) must be provided")
 
     def _parse_message_body(self, msg) -> Dict[str, Any]:
         # msg.body may be an iterable of bytes/str parts
@@ -113,20 +133,23 @@ class ServiceBusOrchestrator:
             }
             try:
                 # ensure we have a connection string to use
-                if not out_conn:
-                    LOG.warning("No connection string available to send summary to %s", out_queue)
-                else:
-                    # use provided connection string if present, otherwise use existing client
-                    if out_conn == self.connection_string:
-                        # reuse the ServiceBusClient context
-                        conn_str = str(self.connection_string)
+                    if not out_conn and not self.sb_fqdn:
+                        LOG.warning("No connection string available to send summary to %s", out_queue)
                     else:
-                        conn_str = str(out_conn)
-
-                    with ServiceBusClient.from_connection_string(conn_str) as client:
-                        with client.get_queue_sender(queue_name=out_queue) as sender:
-                            sender.send_messages(ServiceBusMessage(json.dumps(summary)))
-                    LOG.info("Sent summary message to output queue %s", out_queue)
+                        # prefer managed identity (sb_fqdn) when configured and no explicit out_conn
+                        if self.sb_fqdn and (out_conn is None or out_conn == self.connection_string):
+                            # credential was set in __init__ when sb_fqdn was provided
+                            assert self.credential is not None
+                            with ServiceBusClient(self.sb_fqdn, credential=self.credential) as client:
+                                with client.get_queue_sender(queue_name=out_queue) as sender:
+                                    sender.send_messages(ServiceBusMessage(json.dumps(summary)))
+                        else:
+                            # explicit connection string available; use it
+                            conn_str = str(out_conn or self.connection_string)
+                            with ServiceBusClient.from_connection_string(conn_str) as client:
+                                with client.get_queue_sender(queue_name=out_queue) as sender:
+                                    sender.send_messages(ServiceBusMessage(json.dumps(summary)))
+                        LOG.info("Sent summary message to output queue %s", out_queue)
             except Exception:
                 LOG.exception("Failed to send summary message to output queue %s", out_queue)
 
@@ -148,10 +171,17 @@ class ServiceBusOrchestrator:
             "details": details or {},
         }
         try:
-            conn_str = str(out_conn)
-            with ServiceBusClient.from_connection_string(conn_str) as client:
-                with client.get_queue_sender(queue_name=out_queue) as sender:
-                    sender.send_messages(ServiceBusMessage(json.dumps(warning)))
+            # Prefer managed identity when sb_fqdn is configured
+            if self.sb_fqdn:
+                assert self.credential is not None
+                with ServiceBusClient(self.sb_fqdn, credential=self.credential) as client:
+                    with client.get_queue_sender(queue_name=out_queue) as sender:
+                        sender.send_messages(ServiceBusMessage(json.dumps(warning)))
+            else:
+                conn_str = str(out_conn)
+                with ServiceBusClient.from_connection_string(conn_str) as client:
+                    with client.get_queue_sender(queue_name=out_queue) as sender:
+                        sender.send_messages(ServiceBusMessage(json.dumps(warning)))
             LOG.info("Sent warning summary to output queue %s", out_queue)
         except Exception:
             LOG.exception("Failed to send warning summary to output queue %s", out_queue)
@@ -174,13 +204,17 @@ class ServiceBusOrchestrator:
         effective_duration = listen_duration_seconds if listen_duration_seconds is not None else self.listen_duration_seconds
         end_time = (time.time() + effective_duration) if effective_duration and effective_duration > 0 else None
 
-        conn_str = str(self.connection_string)
         # To ensure we process exactly one message at a time and avoid prefetching
         # multiple messages into the client, set prefetch_count=0 and request
-        # a single message per receive call (max_message_count=1). We also
-        # support graceful shutdown: KeyboardInterrupt sets a stop flag so the
-        # currently-processing message can finish before the listener exits.
-        with ServiceBusClient.from_connection_string(conn_str) as client:
+        # a single message per receive call (max_message_count=1).
+        if self.sb_fqdn:
+            assert self.credential is not None
+            client_ctx = ServiceBusClient(self.sb_fqdn, credential=self.credential)
+        else:
+            conn_str = str(self.connection_string)
+            client_ctx = ServiceBusClient.from_connection_string(conn_str)
+
+        with client_ctx as client:
             receiver = client.get_queue_receiver(queue_name=queue_name, max_wait_time=max_wait_time, prefetch_count=0)
             with receiver:
                 while True:
@@ -220,6 +254,7 @@ def main_from_env():
     parser.add_argument("--input-queue", required=False, help="Service Bus input queue name to listen to (overrides env INPUT_QUEUE)")
     parser.add_argument("--output-queue", required=False, help="Service Bus output queue name to send summaries to (overrides env OUTPUT_QUEUE)")
     parser.add_argument("--connection-string", required=False, help="Service Bus connection string (overrides env SERVICEBUS_CONNECTION_STRING)")
+    parser.add_argument("--sb-fqdn", required=False, help="Service Bus fully-qualified namespace to use managed identity (overrides env SB_FQDN)")
     parser.add_argument("--listen-duration", required=False, type=int, help="How many seconds to listen before stopping and sending a warning summary (overrides env LISTEN_DURATION_SECONDS)")
     args = parser.parse_args()
 
@@ -228,6 +263,7 @@ def main_from_env():
         connection_string=args.connection_string,
         input_queue=args.input_queue,
         output_queue=args.output_queue,
+        sb_fqdn=args.sb_fqdn,
     )
     orchestrator.listen_queue(listen_duration_seconds=args.listen_duration)
 
